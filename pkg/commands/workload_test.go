@@ -1665,6 +1665,7 @@ Published source
 			cmd := &cobra.Command{}
 			ctx := cli.WithCommand(context.Background(), cmd)
 			ctx = source.StashGgcrRemoteOptions(ctx, remote.WithTransport(registry.Client().Transport))
+			ctx = source.StashClientTransport(ctx, registry.Client().Transport)
 
 			opts := &commands.WorkloadOptions{}
 			opts.DefineFlags(ctx, c, cmd)

@@ -19,20 +19,36 @@ package source
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"os"
 	"path"
 
 	"github.com/cppforlife/go-cli-ui/ui"
 	regname "github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
-	"github.com/k14s/imgpkg/pkg/imgpkg/plainimage"
-	"github.com/k14s/imgpkg/pkg/imgpkg/registry"
+	"github.com/vmware-tanzu/carvel-imgpkg/pkg/imgpkg/plainimage"
+	"github.com/vmware-tanzu/carvel-imgpkg/pkg/imgpkg/registry"
 )
 
 func ImgpkgPush(ctx context.Context, dir string, image string) (string, error) {
 	options := RetrieveGgcrRemoteOptions(ctx)
+	transport := RetrieveClientTransport(ctx)
 
-	// TODO support more registry options
-	reg, err := registry.NewRegistry(registry.Opts{VerifyCerts: true}, options...)
+	// Check if env var IMGPKG_ENABLE_IAAS_AUTH exists,
+	// users can set this env var to true to let imgpkg find creds based on the IaaS provider
+	// for CLI we are setting the default to false
+
+	envVars := []string{"IMGPKG_ENABLE_IAAS_AUTH=false"}
+	val, present := os.LookupEnv("IMGPKG_ENABLE_IAAS_AUTH")
+	if present {
+		envVars = []string{
+			"IMGPKG_ENABLE_IAAS_AUTH=" + val,
+		}
+	}
+
+	// TODO: support more registry options using apps plugin configuration
+	reg, err := registry.NewSimpleRegistryWithTransport(
+		registry.Opts{VerifyCerts: true, EnvironFunc: func() []string { return envVars }}, transport, options...)
 	if err != nil {
 		return "", fmt.Errorf("unable to create a registry with provided options: %v", err)
 	}
@@ -53,6 +69,7 @@ func ImgpkgPush(ctx context.Context, dir string, image string) (string, error) {
 }
 
 type ggcrRemoteOptionsStashKey struct{}
+type ggcrRemoteClientTransportStashKey struct{}
 
 func StashGgcrRemoteOptions(ctx context.Context, options ...remote.Option) context.Context {
 	return context.WithValue(ctx, ggcrRemoteOptionsStashKey{}, options)
@@ -64,4 +81,16 @@ func RetrieveGgcrRemoteOptions(ctx context.Context) []remote.Option {
 		return []remote.Option{}
 	}
 	return options
+}
+
+func StashClientTransport(ctx context.Context, r http.RoundTripper) context.Context {
+	return context.WithValue(ctx, ggcrRemoteClientTransportStashKey{}, r)
+}
+
+func RetrieveClientTransport(ctx context.Context) http.RoundTripper {
+	cTransport, ok := ctx.Value(ggcrRemoteClientTransportStashKey{}).(http.RoundTripper)
+	if !ok {
+		return remote.DefaultTransport.Clone()
+	}
+	return cTransport
 }
